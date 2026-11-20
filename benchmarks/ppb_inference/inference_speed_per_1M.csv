@@ -1,0 +1,20 @@
+model,hardware,rows_measured,predict_chunk,featurize_hours_per_1M,predict_hours_per_1M,peak_gpu_gb,total_hours_per_1M,predict_hours_per_1M_at_chunk50k,total_hours_per_1M_at_chunk50k
+random_forest,CPU (32 cores),199978,,0.424,0.028,,0.452,0.028,0.452
+chemprop,1 GPU,199978,,0.041,1.01,3.397,1.051,1.01,1.051
+rf_monroe_pca200,CPU (32 cores),199978,,1.259,0.005,,1.264,0.005,1.264
+rf_monroe_pca100,CPU (32 cores),199978,,1.26,0.005,,1.265,0.005,1.265
+rf_monroe,CPU (32 cores),199978,,1.259,0.012,,1.271,0.012,1.271
+tabicl_chemeleon_pca100,1 GPU,199978,50000.0,0.133,1.16,34.79,1.293,1.16,1.293
+tabicl_monroe_pca23,1 GPU,199978,50000.0,1.259,0.392,18.67,1.652,0.392,1.652
+tabicl_monroe_pca62,1 GPU,199978,50000.0,1.259,0.776,30.37,2.036,0.776,2.036
+tabicl_rdkit,1 GPU,199978,50000.0,0.229,1.869,46.055,2.098,1.869,2.098
+chemprop_monroe_pca200,1 GPU,199978,,1.294,0.983,3.4,2.276,0.983,2.276
+chemprop_monroe,1 GPU,199978,,1.298,0.98,3.44,2.278,0.98,2.278
+tabicl_monroe_pca100,1 GPU,199978,50000.0,1.26,1.149,34.79,2.409,1.149,2.409
+tabicl_chemeleon_pca200,1 GPU,99978,25000.0,0.133,2.491,35.69,2.624,2.741,2.874
+tabicl_monroe_pca200,1 GPU,99978,25000.0,1.259,2.4,35.69,3.659,2.668,3.927
+tabicl_chemeleon_pca720,1 GPU,199978,50000.0,0.133,10.897,24.41,11.03,10.897,11.03
+tabicl_monroe,1 GPU,199978,50000.0,1.259,11.058,24.41,12.317,11.058,12.317
+tabicl_chemeleon,1 GPU,99978,10000.0,0.119,39.52,24.28,39.639,102.4,102.519
+tabicl_morgan,1 GPU,99978,10000.0,0.195,44.17,24.38,44.365,107.1,107.295
+tabicl_rdkit_morgan,1 GPU,99978,10000.0,0.424,50.05,24.42,50.474,114.6,115.024

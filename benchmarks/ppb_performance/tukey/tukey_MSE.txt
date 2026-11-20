@@ -1,0 +1,176 @@
+                 Multiple Comparison of Means - Tukey HSD, FWER=0.05                  
+======================================================================================
+         group1                  group2         meandiff p-adj   lower   upper  reject
+--------------------------------------------------------------------------------------
+               chemprop         chemprop_monroe  -0.0546    0.0 -0.0637 -0.0454   True
+               chemprop  chemprop_monroe_pca200  -0.0038 0.9946 -0.0129  0.0054  False
+               chemprop           random_forest   0.0456    0.0  0.0365  0.0548   True
+               chemprop               rf_monroe   0.0025    1.0 -0.0066  0.0116  False
+               chemprop        rf_monroe_pca100    0.087    0.0  0.0779  0.0962   True
+               chemprop        rf_monroe_pca200   0.1077    0.0  0.0985  0.1168   True
+               chemprop        tabicl_chemeleon    0.049    0.0  0.0399  0.0582   True
+               chemprop tabicl_chemeleon_pca100  -0.0034 0.9984 -0.0126  0.0057  False
+               chemprop tabicl_chemeleon_pca200  -0.0036  0.997 -0.0128  0.0055  False
+               chemprop tabicl_chemeleon_pca720  -0.0165    0.0 -0.0257 -0.0074   True
+               chemprop           tabicl_monroe  -0.0699    0.0  -0.079 -0.0607   True
+               chemprop    tabicl_monroe_pca100  -0.0609    0.0   -0.07 -0.0517   True
+               chemprop    tabicl_monroe_pca200  -0.0615    0.0 -0.0706 -0.0524   True
+               chemprop     tabicl_monroe_pca23   -0.048    0.0 -0.0572 -0.0389   True
+               chemprop     tabicl_monroe_pca62  -0.0564    0.0 -0.0655 -0.0472   True
+               chemprop           tabicl_morgan   0.2362    0.0   0.227  0.2453   True
+               chemprop            tabicl_rdkit  -0.0033 0.9992 -0.0124  0.0059  False
+               chemprop     tabicl_rdkit_morgan   0.0574    0.0  0.0483  0.0666   True
+        chemprop_monroe  chemprop_monroe_pca200   0.0508    0.0  0.0416  0.0599   True
+        chemprop_monroe           random_forest   0.1002    0.0   0.091  0.1093   True
+        chemprop_monroe               rf_monroe   0.0571    0.0  0.0479  0.0662   True
+        chemprop_monroe        rf_monroe_pca100   0.1416    0.0  0.1325  0.1508   True
+        chemprop_monroe        rf_monroe_pca200   0.1622    0.0  0.1531  0.1714   True
+        chemprop_monroe        tabicl_chemeleon   0.1036    0.0  0.0944  0.1127   True
+        chemprop_monroe tabicl_chemeleon_pca100   0.0511    0.0   0.042  0.0603   True
+        chemprop_monroe tabicl_chemeleon_pca200    0.051    0.0  0.0418  0.0601   True
+        chemprop_monroe tabicl_chemeleon_pca720    0.038    0.0  0.0289  0.0472   True
+        chemprop_monroe           tabicl_monroe  -0.0153    0.0 -0.0245 -0.0062   True
+        chemprop_monroe    tabicl_monroe_pca100  -0.0063 0.6067 -0.0154  0.0028  False
+        chemprop_monroe    tabicl_monroe_pca200  -0.0069 0.4214 -0.0161  0.0022  False
+        chemprop_monroe     tabicl_monroe_pca23   0.0065 0.5327 -0.0026  0.0157  False
+        chemprop_monroe     tabicl_monroe_pca62  -0.0018    1.0 -0.0109  0.0073  False
+        chemprop_monroe           tabicl_morgan   0.2908    0.0  0.2816  0.2999   True
+        chemprop_monroe            tabicl_rdkit   0.0513    0.0  0.0422  0.0605   True
+        chemprop_monroe     tabicl_rdkit_morgan    0.112    0.0  0.1029  0.1212   True
+ chemprop_monroe_pca200           random_forest   0.0494    0.0  0.0403  0.0585   True
+ chemprop_monroe_pca200               rf_monroe   0.0063  0.612 -0.0029  0.0154  False
+ chemprop_monroe_pca200        rf_monroe_pca100   0.0908    0.0  0.0817     0.1   True
+ chemprop_monroe_pca200        rf_monroe_pca200   0.1115    0.0  0.1023  0.1206   True
+ chemprop_monroe_pca200        tabicl_chemeleon   0.0528    0.0  0.0436  0.0619   True
+ chemprop_monroe_pca200 tabicl_chemeleon_pca100   0.0004    1.0 -0.0088  0.0095  False
+ chemprop_monroe_pca200 tabicl_chemeleon_pca200   0.0002    1.0  -0.009  0.0093  False
+ chemprop_monroe_pca200 tabicl_chemeleon_pca720  -0.0128 0.0002 -0.0219 -0.0036   True
+ chemprop_monroe_pca200           tabicl_monroe  -0.0661    0.0 -0.0752  -0.057   True
+ chemprop_monroe_pca200    tabicl_monroe_pca100  -0.0571    0.0 -0.0662 -0.0479   True
+ chemprop_monroe_pca200    tabicl_monroe_pca200  -0.0577    0.0 -0.0669 -0.0486   True
+ chemprop_monroe_pca200     tabicl_monroe_pca23  -0.0442    0.0 -0.0534 -0.0351   True
+ chemprop_monroe_pca200     tabicl_monroe_pca62  -0.0526    0.0 -0.0617 -0.0434   True
+ chemprop_monroe_pca200           tabicl_morgan     0.24    0.0  0.2308  0.2491   True
+ chemprop_monroe_pca200            tabicl_rdkit   0.0005    1.0 -0.0086  0.0097  False
+ chemprop_monroe_pca200     tabicl_rdkit_morgan   0.0612    0.0  0.0521  0.0704   True
+          random_forest               rf_monroe  -0.0431    0.0 -0.0523  -0.034   True
+          random_forest        rf_monroe_pca100   0.0414    0.0  0.0323  0.0506   True
+          random_forest        rf_monroe_pca200   0.0621    0.0  0.0529  0.0712   True
+          random_forest        tabicl_chemeleon   0.0034 0.9986 -0.0057  0.0125  False
+          random_forest tabicl_chemeleon_pca100   -0.049    0.0 -0.0582 -0.0399   True
+          random_forest tabicl_chemeleon_pca200  -0.0492    0.0 -0.0584 -0.0401   True
+          random_forest tabicl_chemeleon_pca720  -0.0622    0.0 -0.0713  -0.053   True
+          random_forest           tabicl_monroe  -0.1155    0.0 -0.1246 -0.1064   True
+          random_forest    tabicl_monroe_pca100  -0.1065    0.0 -0.1156 -0.0973   True
+          random_forest    tabicl_monroe_pca200  -0.1071    0.0 -0.1163  -0.098   True
+          random_forest     tabicl_monroe_pca23  -0.0936    0.0 -0.1028 -0.0845   True
+          random_forest     tabicl_monroe_pca62   -0.102    0.0 -0.1111 -0.0928   True
+          random_forest           tabicl_morgan   0.1906    0.0  0.1814  0.1997   True
+          random_forest            tabicl_rdkit  -0.0489    0.0  -0.058 -0.0397   True
+          random_forest     tabicl_rdkit_morgan   0.0118 0.0009  0.0027   0.021   True
+              rf_monroe        rf_monroe_pca100   0.0845    0.0  0.0754  0.0937   True
+              rf_monroe        rf_monroe_pca200   0.1052    0.0   0.096  0.1143   True
+              rf_monroe        tabicl_chemeleon   0.0465    0.0  0.0374  0.0557   True
+              rf_monroe tabicl_chemeleon_pca100  -0.0059 0.7154 -0.0151  0.0032  False
+              rf_monroe tabicl_chemeleon_pca200  -0.0061 0.6639 -0.0152   0.003  False
+              rf_monroe tabicl_chemeleon_pca720   -0.019    0.0 -0.0282 -0.0099   True
+              rf_monroe           tabicl_monroe  -0.0724    0.0 -0.0815 -0.0632   True
+              rf_monroe    tabicl_monroe_pca100  -0.0634    0.0 -0.0725 -0.0542   True
+              rf_monroe    tabicl_monroe_pca200   -0.064    0.0 -0.0731 -0.0549   True
+              rf_monroe     tabicl_monroe_pca23  -0.0505    0.0 -0.0597 -0.0414   True
+              rf_monroe     tabicl_monroe_pca62  -0.0589    0.0  -0.068 -0.0497   True
+              rf_monroe           tabicl_morgan   0.2337    0.0  0.2245  0.2428   True
+              rf_monroe            tabicl_rdkit  -0.0058 0.7601 -0.0149  0.0034  False
+              rf_monroe     tabicl_rdkit_morgan   0.0549    0.0  0.0458  0.0641   True
+       rf_monroe_pca100        rf_monroe_pca200   0.0206    0.0  0.0115  0.0298   True
+       rf_monroe_pca100        tabicl_chemeleon   -0.038    0.0 -0.0472 -0.0289   True
+       rf_monroe_pca100 tabicl_chemeleon_pca100  -0.0905    0.0 -0.0996 -0.0813   True
+       rf_monroe_pca100 tabicl_chemeleon_pca200  -0.0907    0.0 -0.0998 -0.0815   True
+       rf_monroe_pca100 tabicl_chemeleon_pca720  -0.1036    0.0 -0.1127 -0.0944   True
+       rf_monroe_pca100           tabicl_monroe  -0.1569    0.0 -0.1661 -0.1478   True
+       rf_monroe_pca100    tabicl_monroe_pca100  -0.1479    0.0 -0.1571 -0.1388   True
+       rf_monroe_pca100    tabicl_monroe_pca200  -0.1485    0.0 -0.1577 -0.1394   True
+       rf_monroe_pca100     tabicl_monroe_pca23  -0.1351    0.0 -0.1442 -0.1259   True
+       rf_monroe_pca100     tabicl_monroe_pca62  -0.1434    0.0 -0.1526 -0.1343   True
+       rf_monroe_pca100           tabicl_morgan   0.1491    0.0    0.14  0.1583   True
+       rf_monroe_pca100            tabicl_rdkit  -0.0903    0.0 -0.0994 -0.0812   True
+       rf_monroe_pca100     tabicl_rdkit_morgan  -0.0296    0.0 -0.0388 -0.0205   True
+       rf_monroe_pca200        tabicl_chemeleon  -0.0587    0.0 -0.0678 -0.0495   True
+       rf_monroe_pca200 tabicl_chemeleon_pca100  -0.1111    0.0 -0.1202 -0.1019   True
+       rf_monroe_pca200 tabicl_chemeleon_pca200  -0.1113    0.0 -0.1204 -0.1021   True
+       rf_monroe_pca200 tabicl_chemeleon_pca720  -0.1242    0.0 -0.1334 -0.1151   True
+       rf_monroe_pca200           tabicl_monroe  -0.1776    0.0 -0.1867 -0.1684   True
+       rf_monroe_pca200    tabicl_monroe_pca100  -0.1685    0.0 -0.1777 -0.1594   True
+       rf_monroe_pca200    tabicl_monroe_pca200  -0.1692    0.0 -0.1783   -0.16   True
+       rf_monroe_pca200     tabicl_monroe_pca23  -0.1557    0.0 -0.1648 -0.1465   True
+       rf_monroe_pca200     tabicl_monroe_pca62   -0.164    0.0 -0.1732 -0.1549   True
+       rf_monroe_pca200           tabicl_morgan   0.1285    0.0  0.1194  0.1377   True
+       rf_monroe_pca200            tabicl_rdkit  -0.1109    0.0 -0.1201 -0.1018   True
+       rf_monroe_pca200     tabicl_rdkit_morgan  -0.0502    0.0 -0.0594 -0.0411   True
+       tabicl_chemeleon tabicl_chemeleon_pca100  -0.0524    0.0 -0.0616 -0.0433   True
+       tabicl_chemeleon tabicl_chemeleon_pca200  -0.0526    0.0 -0.0618 -0.0435   True
+       tabicl_chemeleon tabicl_chemeleon_pca720  -0.0655    0.0 -0.0747 -0.0564   True
+       tabicl_chemeleon           tabicl_monroe  -0.1189    0.0  -0.128 -0.1098   True
+       tabicl_chemeleon    tabicl_monroe_pca100  -0.1099    0.0  -0.119 -0.1007   True
+       tabicl_chemeleon    tabicl_monroe_pca200  -0.1105    0.0 -0.1197 -0.1014   True
+       tabicl_chemeleon     tabicl_monroe_pca23   -0.097    0.0 -0.1062 -0.0879   True
+       tabicl_chemeleon     tabicl_monroe_pca62  -0.1054    0.0 -0.1145 -0.0962   True
+       tabicl_chemeleon           tabicl_morgan   0.1872    0.0   0.178  0.1963   True
+       tabicl_chemeleon            tabicl_rdkit  -0.0523    0.0 -0.0614 -0.0431   True
+       tabicl_chemeleon     tabicl_rdkit_morgan   0.0084 0.1137 -0.0007  0.0176  False
+tabicl_chemeleon_pca100 tabicl_chemeleon_pca200  -0.0002    1.0 -0.0093   0.009  False
+tabicl_chemeleon_pca100 tabicl_chemeleon_pca720  -0.0131 0.0001 -0.0223  -0.004   True
+tabicl_chemeleon_pca100           tabicl_monroe  -0.0665    0.0 -0.0756 -0.0573   True
+tabicl_chemeleon_pca100    tabicl_monroe_pca100  -0.0574    0.0 -0.0666 -0.0483   True
+tabicl_chemeleon_pca100    tabicl_monroe_pca200  -0.0581    0.0 -0.0672 -0.0489   True
+tabicl_chemeleon_pca100     tabicl_monroe_pca23  -0.0446    0.0 -0.0537 -0.0355   True
+tabicl_chemeleon_pca100     tabicl_monroe_pca62  -0.0529    0.0 -0.0621 -0.0438   True
+tabicl_chemeleon_pca100           tabicl_morgan   0.2396    0.0  0.2305  0.2488   True
+tabicl_chemeleon_pca100            tabicl_rdkit   0.0002    1.0  -0.009  0.0093  False
+tabicl_chemeleon_pca100     tabicl_rdkit_morgan   0.0609    0.0  0.0517    0.07   True
+tabicl_chemeleon_pca200 tabicl_chemeleon_pca720  -0.0129 0.0001 -0.0221 -0.0038   True
+tabicl_chemeleon_pca200           tabicl_monroe  -0.0663    0.0 -0.0754 -0.0571   True
+tabicl_chemeleon_pca200    tabicl_monroe_pca100  -0.0573    0.0 -0.0664 -0.0481   True
+tabicl_chemeleon_pca200    tabicl_monroe_pca200  -0.0579    0.0  -0.067 -0.0488   True
+tabicl_chemeleon_pca200     tabicl_monroe_pca23  -0.0444    0.0 -0.0536 -0.0353   True
+tabicl_chemeleon_pca200     tabicl_monroe_pca62  -0.0528    0.0 -0.0619 -0.0436   True
+tabicl_chemeleon_pca200           tabicl_morgan   0.2398    0.0  0.2306  0.2489   True
+tabicl_chemeleon_pca200            tabicl_rdkit   0.0004    1.0 -0.0088  0.0095  False
+tabicl_chemeleon_pca200     tabicl_rdkit_morgan    0.061    0.0  0.0519  0.0702   True
+tabicl_chemeleon_pca720           tabicl_monroe  -0.0533    0.0 -0.0625 -0.0442   True
+tabicl_chemeleon_pca720    tabicl_monroe_pca100  -0.0443    0.0 -0.0535 -0.0352   True
+tabicl_chemeleon_pca720    tabicl_monroe_pca200   -0.045    0.0 -0.0541 -0.0358   True
+tabicl_chemeleon_pca720     tabicl_monroe_pca23  -0.0315    0.0 -0.0406 -0.0223   True
+tabicl_chemeleon_pca720     tabicl_monroe_pca62  -0.0398    0.0  -0.049 -0.0307   True
+tabicl_chemeleon_pca720           tabicl_morgan   0.2527    0.0  0.2436  0.2619   True
+tabicl_chemeleon_pca720            tabicl_rdkit   0.0133 0.0001  0.0041  0.0224   True
+tabicl_chemeleon_pca720     tabicl_rdkit_morgan    0.074    0.0  0.0648  0.0831   True
+          tabicl_monroe    tabicl_monroe_pca100    0.009 0.0584 -0.0001  0.0182  False
+          tabicl_monroe    tabicl_monroe_pca200   0.0084 0.1186 -0.0008  0.0175  False
+          tabicl_monroe     tabicl_monroe_pca23   0.0219    0.0  0.0127   0.031   True
+          tabicl_monroe     tabicl_monroe_pca62   0.0135    0.0  0.0044  0.0227   True
+          tabicl_monroe           tabicl_morgan   0.3061    0.0  0.2969  0.3152   True
+          tabicl_monroe            tabicl_rdkit   0.0666    0.0  0.0575  0.0758   True
+          tabicl_monroe     tabicl_rdkit_morgan   0.1273    0.0  0.1182  0.1365   True
+   tabicl_monroe_pca100    tabicl_monroe_pca200  -0.0006    1.0 -0.0098  0.0085  False
+   tabicl_monroe_pca100     tabicl_monroe_pca23   0.0128 0.0002  0.0037   0.022   True
+   tabicl_monroe_pca100     tabicl_monroe_pca62   0.0045 0.9659 -0.0046  0.0136  False
+   tabicl_monroe_pca100           tabicl_morgan   0.2971    0.0  0.2879  0.3062   True
+   tabicl_monroe_pca100            tabicl_rdkit   0.0576    0.0  0.0485  0.0668   True
+   tabicl_monroe_pca100     tabicl_rdkit_morgan   0.1183    0.0  0.1092  0.1275   True
+   tabicl_monroe_pca200     tabicl_monroe_pca23   0.0135    0.0  0.0043  0.0226   True
+   tabicl_monroe_pca200     tabicl_monroe_pca62   0.0051 0.8928  -0.004  0.0143  False
+   tabicl_monroe_pca200           tabicl_morgan   0.2977    0.0  0.2885  0.3068   True
+   tabicl_monroe_pca200            tabicl_rdkit   0.0582    0.0  0.0491  0.0674   True
+   tabicl_monroe_pca200     tabicl_rdkit_morgan   0.1189    0.0  0.1098  0.1281   True
+    tabicl_monroe_pca23     tabicl_monroe_pca62  -0.0083 0.1235 -0.0175  0.0008  False
+    tabicl_monroe_pca23           tabicl_morgan   0.2842    0.0  0.2751  0.2934   True
+    tabicl_monroe_pca23            tabicl_rdkit   0.0448    0.0  0.0356  0.0539   True
+    tabicl_monroe_pca23     tabicl_rdkit_morgan   0.1055    0.0  0.0963  0.1146   True
+    tabicl_monroe_pca62           tabicl_morgan   0.2926    0.0  0.2834  0.3017   True
+    tabicl_monroe_pca62            tabicl_rdkit   0.0531    0.0   0.044  0.0623   True
+    tabicl_monroe_pca62     tabicl_rdkit_morgan   0.1138    0.0  0.1047   0.123   True
+          tabicl_morgan            tabicl_rdkit  -0.2394    0.0 -0.2486 -0.2303   True
+          tabicl_morgan     tabicl_rdkit_morgan  -0.1788    0.0 -0.1879 -0.1696   True
+           tabicl_rdkit     tabicl_rdkit_morgan   0.0607    0.0  0.0515  0.0698   True
+--------------------------------------------------------------------------------------

@@ -1,0 +1,14 @@
+{
+  "representation": "monroe",
+  "simulations": 50,
+  "horns_seconds": 29.0,
+  "horns_n": 62,
+  "fast_n": 62,
+  "horns_eigvals_descending": false,
+  "threshold_head_positions": 124,
+  "threshold_head_max_rel_diff": 0.029423639561436104,
+  "threshold_head_median_rel_diff": 0.004841316120693703,
+  "threshold_all_max_rel_diff": 0.7728567030888861,
+  "threshold_all_median_rel_diff": 0.16914214559284946,
+  "threshold_argmax_position": 715
+}
