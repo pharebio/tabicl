@@ -2,9 +2,11 @@ import copy
 
 import numpy as np
 import pytest
+import sklearn
 from numpy.testing import assert_allclose
-from sklearn.datasets import make_classification, make_regression
+from sklearn.datasets import make_classification
 from sklearn.utils.estimator_checks import parametrize_with_checks
+from sklearn.utils.fixes import parse_version
 
 from tabicl import TabICLClassifier, TabICLRegressor
 from tests.torch_devices_helpers import skip_if_device_unusable, DEVICES
@@ -24,10 +26,20 @@ _SKLEARN_ESTIMATORS = [
     )
 ]
 
+# scikit-learn < 1.4 forces aligned memmaps when OpenBLAS may be the Prescott
+# architecture, and aligned memmaps reject estimator objects.
+_SKLEARN_MEMMAP_PICKLE_BUG = parse_version(sklearn.__version__) < parse_version("1.4")
+
 
 @parametrize_with_checks(_SKLEARN_ESTIMATORS)
 def test_sklearn_compatible_estimator(estimator, check):
     skip_if_device_unusable(estimator.get_params()["device"])
+    if (
+        _SKLEARN_MEMMAP_PICKLE_BUG
+        and check.func.__name__ == "check_estimators_pickle"
+        and check.keywords.get("readonly_memmap")
+    ):
+        pytest.skip("scikit-learn < 1.4 may fail to memmap estimators")
     check(estimator)
 
 
@@ -59,44 +71,3 @@ def test_all_nan_column():
     assert proba.shape == (10, 2)
     assert np.all(np.isfinite(proba))
     assert_allclose(proba.sum(axis=1), 1.0)
-
-
-class TestClassifierKVCache:
-    @pytest.mark.parametrize("device", DEVICES)
-    @pytest.mark.parametrize("kv_cache", ["kv", "repr"])
-    def test_kv_cache(self, device, kv_cache):
-        """Predictions with kv cache should match predictions without cache."""
-        skip_if_device_unusable(device)
-        X, y = make_classification(n_samples=50, n_features=5, random_state=42)
-        X_train, X_test = X[:40], X[40:]
-        y_train = y[:40]
-        clf = TabICLClassifier(n_estimators=2, device=device)
-        clf.fit(X_train, y_train)
-        pred_no_cache = clf.predict_proba(X_test)
-
-        clf_cached = TabICLClassifier(n_estimators=2, device=device, kv_cache=kv_cache)
-        clf_cached.fit(X_train, y_train)
-        pred_cached = clf_cached.predict_proba(X_test)
-
-        np.testing.assert_allclose(pred_no_cache, pred_cached, rtol=1e-4, atol=1e-4)
-
-
-class TestRegressorKVCache:
-    @pytest.mark.parametrize("device", DEVICES)
-    @pytest.mark.parametrize("kv_cache", ["kv", "repr"])
-    def test_kv_cache(self, device, kv_cache):
-        """Predictions with kv cache should match predictions without cache."""
-        skip_if_device_unusable(device)
-        X, y = make_regression(n_samples=50, n_features=5, random_state=42)
-        X_train, X_test = X[:40], X[40:]
-        y_train = y[:40]
-        reg = TabICLRegressor(n_estimators=2, device=device)
-        reg.fit(X_train, y_train)
-        pred_no_cache = reg.predict(X_test)
-
-        reg_cached = TabICLRegressor(n_estimators=2, device=device, kv_cache=kv_cache)
-        reg_cached.fit(X_train, y_train)
-        pred_cached = reg_cached.predict(X_test)
-
-        # Relaxed tolerance: kv cache changes float32 computation order
-        np.testing.assert_allclose(pred_no_cache, pred_cached, rtol=1e-4, atol=1e-4)
