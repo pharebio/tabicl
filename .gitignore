@@ -145,3 +145,9 @@ papers/
 CLAUDE.md
 ckpts/
 src_private/
+
+# Per-compound predictions joined to structures. assemble_ppb_tabicl_benchmark.py
+# regenerates this from the per-fold model directories and compare_models.py is its
+# only reader, so it never needs to be committed -- and it carries canonical SMILES
+# for the held-out test compounds, which do not belong in a public fork.
+benchmarks/ppb_performance/predictions/ppb.csv
