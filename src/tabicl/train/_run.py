@@ -478,7 +478,45 @@ class Trainer:
         if "state_dict" not in checkpoint:
             raise ValueError("Checkpoint does not contain model state")
 
-        self.raw_model.load_state_dict(checkpoint["state_dict"])
+        state = checkpoint["state_dict"]
+        stock_attention_ckpt = any(k.startswith(("col_embedder.", "row_interactor.")) for k in state)
+
+        if getattr(self.config, "row_encoder", "attention") == "projection" and stock_attention_ckpt:
+            # Initializing the projection ablation from a published checkpoint: take the
+            # pretrained ICL stage and leave the encoder freshly initialized. Loading
+            # strictly would fail on both sides -- the checkpoint carries col_embedder and
+            # row_interactor keys this model does not have, and lacks proj_encoder keys it
+            # needs. Freezing a randomly initialized ICL stage would be meaningless, so
+            # this path exists to make --freeze_icl mean what it says.
+            if not self.config.only_load_model:
+                raise ValueError(
+                    "Initializing --row_encoder=projection from a checkpoint that holds the "
+                    "attention stages carries no optimizer or scheduler state for this model. "
+                    "Pass --only_load_model true."
+                )
+
+            model_keys = set(self.raw_model.state_dict())
+            kept = {k: v for k, v in state.items() if k in model_keys}
+            missing, unexpected = self.raw_model.load_state_dict(kept, strict=False)
+            unexpected = [k for k in unexpected if not k.startswith(("col_embedder.", "row_interactor."))]
+            if unexpected:
+                raise ValueError(f"Checkpoint weights did not match this model: unexpected keys {unexpected}.")
+            if not any(k.startswith("icl_predictor.") for k in kept):
+                raise ValueError("Checkpoint contains no 'icl_predictor.*' weights to load.")
+            if any(k.startswith("icl_predictor.") for k in missing):
+                raise ValueError(
+                    f"Checkpoint is missing ICL weights this model needs: "
+                    f"{[k for k in missing if k.startswith('icl_predictor.')]}."
+                )
+            if self.master_process:
+                dropped = sum(1 for k in state if k.startswith(("col_embedder.", "row_interactor.")))
+                print(
+                    f"Loaded {len(kept)} pretrained tensors into the ICL stage; left "
+                    f"{len(missing)} encoder tensors freshly initialized; ignored {dropped} "
+                    f"tensors of the two attention stages this model does not build."
+                )
+        else:
+            self.raw_model.load_state_dict(state)
 
         # Optionally load optimizer and scheduler state
         if self.config.only_load_model:

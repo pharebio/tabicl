@@ -225,12 +225,34 @@ ICL is what keeps the result interpretable -- it asks whether a projected repres
 is readable by the ICL stage as trained, not whether some jointly trained pair of
 networks works.
 
-**The environment cannot train yet.** `ppb-inference`, which ran every benchmark here,
-lacks `xgboost` and `transformers`, so `tabicl.prior` will not import and
-`tests/test_finetune_freezing.py` will not collect. Training needs the `pretrain` extra
-(`transformers`, `xgboost`, `wandb`) in an environment of its own -- not added to
-`ppb-inference`, so the measured inference numbers stay reproducible. Until that exists,
-the new `--row_encoder` flags are wired but unexercised end to end.
+**Environment.** `ppb-inference`, which ran every benchmark here, lacks `xgboost` and
+`transformers`, so `tabicl.prior` will not import there. Training uses
+`/data/andrew/envs/tabicl-train` (python 3.12, torch 2.7.1+cu126, the fork installed
+editable with the `pretrain` extra), kept separate so the measured inference numbers stay
+reproducible. `PYTHONNOUSERSITE=1` is mandatory and the launcher sets it: without it
+`~/.local/lib/python3.12/site-packages` enters `sys.path` ahead of the environment's own
+packages.
+
+**Loading the pretrained ICL stage.** `--freeze_icl` is meaningless unless the stage
+starts pretrained, and `load_checkpoint` could not do that: it called `load_state_dict`
+strictly, which fails on both sides for a projection model -- a published checkpoint
+carries `col_embedder` and `row_interactor` keys the model does not have and lacks the
+`proj_encoder` keys it needs. It now detects that case, loads the ICL weights alone,
+leaves the encoder fresh, and requires `--only_load_model true` since a published
+checkpoint carries no optimizer state for this model.
+
+**`scripts/train_rung4_projection.sh`** is the launcher. Every ICL-shaping flag is copied
+from `train_v2_reg_stage3.sh`, which produced the checkpoint being loaded, so the
+pretrained weights load rather than silently mismatching. Verified end to end on a short
+run: 223 pretrained tensors into the ICL stage, 5 encoder tensors left fresh, 124
+attention-stage tensors ignored; after training, 0 of the 223 ICL tensors differ from the
+published checkpoint while all 5 encoder tensors have moved, and the saved checkpoint
+carries `row_encoder: projection` with no attention-stage keys.
+
+Worth noting from that script: stage 3 pretrained the ICL stage at `--max_seq_len 60000`
+and `--max_features 100`, so a 5,626-row context is well inside its range, and the
+published model serving 720- and 2,048-column tables is itself evidence that attention
+mode generalizes past its training width -- which rung 4 cannot.
 
 ### Feature width becomes a model parameter
 
