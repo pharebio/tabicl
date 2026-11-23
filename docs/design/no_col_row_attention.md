@@ -1,9 +1,14 @@
 # Removing column-wise and row-wise attention
 
-Scope for the `no-col-row-attention` branch. Branched from `ppb-inference-benchmark`
-at 8c6d7e9, so the PPB performance and library-inference harnesses are available for
-before/after comparison. No model code has been written yet; this file defines what
-would be built and how it would be judged.
+Scope for the `no-col-row-attention` branch, branched from `ppb-inference-benchmark` at
+8c6d7e9 so the PPB performance and library-inference harnesses are available for
+before/after comparison.
+
+The branch implements **rung 4** of the ladder in section 3: both attention stages
+deleted, a row vector projected straight into the pretrained in-context-learning stage.
+That is the architecture molecular ICL models assume when they feed a fixed-length
+encoder output into an ICL transformer, and the branch exists to price that assumption
+rather than to adopt it.
 
 ## 1. What the three stages cost
 
@@ -22,9 +27,8 @@ Parameter counts, from `tabicl-regressor-v2-20260212.ckpt`:
 Wall-clock per forward pass, measured on one RTX 6000 Ada at the library-inference
 shape (1 table, 5,626 context rows, 50,000 test rows, fp32 inputs, the shipped default
 `InferenceConfig` so AMP and its memory-derived batch sizing are both on, median of 3
-after warm-up). Reproduced by
-`benchmarks/stage_timing/measure_stage_timing.py`, which writes `stage_timing.csv`
-beside itself:
+after warm-up). Reproduced by `benchmarks/stage_timing/measure_stage_timing.py`, which
+writes `stage_timing.csv` beside itself:
 
 | H | col | row | icl | total | col+row share | peak GPU |
 |---|---|---|---|---|---|---|
@@ -37,204 +41,234 @@ beside itself:
 Two facts follow, and together they are the case for the branch:
 
 - **The ICL stage does not depend on feature width.** It holds 95.5% of the parameters
-  and takes 0.103–0.129 s at every width from 23 to 720. All growth in feature width is
+  and takes 0.103-0.129 s at every width from 23 to 720. All growth in feature width is
   in the two stages that hold 4.5% of the parameters.
 - **Those two stages grow about linearly in width**, at roughly 8.3 ms per column
-  (linear fit over H >= 62; residuals within ±10%, so the fit is a description of the
-  measured range, not a law).
+  (linear fit over H >= 62; residuals within +/-10%, so the fit describes the measured
+  range rather than stating a law).
 
-This is consistent with the benchmark figure already reported in
-`benchmarks/ppb_performance/report.md` — a model stage linear in feature width up to
-100 columns — and locates the H-independent intercept in that fit as the ICL stage.
+This is consistent with the model stage reported linear in feature width up to 100
+columns in `benchmarks/ppb_performance/report.md`, and locates the H-independent
+intercept of that fit as the ICL stage.
+
+### Which axis each stage attends over
+
+Worth stating explicitly, because the names invite the opposite reading and the
+distinction decides what an ablation is testing. `ColEmbedding`'s first act is
+`features = X.transpose(1, 2).unsqueeze(-1)  # (B, H+C, T, 1)` (`embedding.py:489`),
+after which the set transformer runs over **T**, with each column a separate sequence.
+
+| stage | attends across | within |
+|---|---|---|
+| `ColEmbedding` | rows | a column |
+| `RowInteraction` | features | a row |
+| `ICLearning` | context examples | the dataset |
+
+So "column-wise embedding" means *an embedding of each column, produced by attending
+over rows* -- not attention over columns. Attention over features is `RowInteraction`.
+Attention over context examples, the ICL mechanism proper, is a separate third stage
+that already exists and that this branch leaves untouched.
+
+A related correction on complexity: TabICL is not a full 2D-attention model. The column
+stage is induced self-attention with 128 inducing points and context-only keys
+(`col_num_inds=128`, `layers.py:648`), so it is **linear in rows**, not quadratic; and
+every ICL query attends to context rows only (`layers.py:437`,
+`k = v = q[..., :train_size, :]`), so that stage is `O(n * n_ctx * d)`, not `O(n^2 * d)`.
+The `O(n*f^2 + n^2*f)` cost of a full factorized 2D transformer does not describe this
+model.
 
 ### The activation expansion
 
 `ColEmbedding` turns every cell into a 128-d vector, so the tensor handed to
 `RowInteraction` has shape `(B, T, H+4, 128)`. At H=62 and T=55,626 that is 1.9 GB in
-fp32 against the table's own 14 MB — a 128-fold per-cell expansion that then gets
+fp32 against the table's own 14 MB -- a 128-fold per-cell expansion that then gets
 collapsed back to 512 numbers per row. The peak-memory column above is mostly this
 tensor and the row stage's attention intermediates over it.
 
 A per-cell expansion of some size is hard to avoid; what the attention stages add is
-that the expanded tensor must be *attended over*, by inducing points across rows in the
-column stage and across the H+4 tokens of a row in the row stage. Removing both stages
-does not remove the expansion so much as make it streamable: the cells can be embedded
-and reduced chunk by chunk, so peak memory becomes a chosen chunk size rather than a
-function of the table. Section 4 measures what that is worth.
-
-Neither stage can be removed alone and get this: dropping only the row stage still
-builds the full tensor in the column stage, and dropping only the column stage still
-builds one (from `in_linear`) for the row stage to attend over.
+that the expanded tensor must be *attended over*. Removing both stages does not remove
+the expansion so much as make it streamable, so peak memory becomes a chosen chunk size
+rather than a function of the table.
 
 ## 2. The interface the ICL stage requires
 
-Any replacement encoder has to produce what `ICLearning` already expects, because the
-point of the branch is to keep the 27.3 M pretrained ICL parameters.
+Any replacement has to produce what `ICLearning` already expects, because the point is
+to keep its 27.3 M pretrained parameters.
 
 - **Shape** `(B, T, 512)`, where 512 = `embed_dim` (128) x `row_num_cls` (4).
 - **Distribution.** `RowInteraction` applies `out_ln = LayerNorm(128)` to each of the 4
   CLS-token outputs and then flattens (`interaction.py`, `_aggregate_embeddings`). So
   each 128-wide chunk of the 512 arrives approximately zero-mean and unit-variance,
-  times a learned affine. A replacement should match that, not merely the shape.
+  times a learned affine. A replacement must match that, not merely the shape.
 - **Targets enter later.** `ICLearning._icl_predictions` adds a y-embedding to the
-  context rows of R itself. The encoder's output must carry feature information only.
-  Note that the pretrained column stage is target-aware (`col_target_aware=True`), so
-  the context rows' representations already depend on y before this point.
-- **Row roles.** Test rows attend to context rows only, via the `train_size` argument.
-  The encoder sees both and must not mix them: context statistics have to be computed
-  from context rows alone or test labels leak.
+  context rows of R itself. Note the pretrained column stage is also target-aware
+  (`col_target_aware=True`), so under the attention encoder the context rows'
+  representations already depend on y before this point. Rung 4 drops that.
+- **Row roles.** Test rows attend to context rows only, via `train_size`. An encoder
+  that computes context statistics must take them from context rows alone.
 
-## 3. What "removing" can mean
+## 3. The ladder
 
-Four variants, in increasing order of how much they change. The saving column is a
-ceiling -- it credits the removed stage with zero replacement cost -- and is computed
-from the H=62 row above:
+"Remove column/row attention" is too coarse to test, because two separable mechanisms
+are involved and they are assumed away for different reasons:
 
-| variant | removes | keeps | time saved at H=62 | expansion becomes streamable |
+- **M1, `ColEmbedding`** -- a context- and target-conditioned embedding of each cell
+  value, functionally a learned adaptive per-column quantile transform. It is what makes
+  a raw scalar in a never-before-seen column interpretable.
+- **M2, `RowInteraction`** -- feature-to-feature interaction within a row, plus
+  aggregation of the H cell embeddings into one fixed-length row token.
+
+A fixed-length encoder output assumes away M1 because its dimensions are taken to be
+commensurable, and M2 because there is no set of H tokens left to aggregate. Those can
+fail independently, so the rungs are worth distinguishing:
+
+| rung | M1 | M2 | what it prices | ceiling at H=62 |
 |---|---|---|---|---|
-| B | row attention | column embedding | ~49% | no |
-| C | column attention | row attention | ~33% | no |
-| D | both | ICL only | ~82% | yes |
-| D' | both, plus ICL finetune | nothing frozen | ~82% | yes |
+| 0 | full | full | baseline | -- |
+| 1 | full | pooled | do within-row feature interactions matter beyond aggregation? | ~50% |
+| 2 | `in_linear` only | full | does context-adaptive per-column embedding matter? | ~33% |
+| 3 | statistics code | pooled | can closed-form column statistics stand in for M1? | ~83% |
+| 4 | none | none | **the fixed-width assumption, stated exactly** | ~83% |
 
-**Variant D is the one worth building.** B and C each buy about half the time and
-neither lifts the memory ceiling. D is also the cleanest to state: raw preprocessed
-features to `(B, T, 512)` with no attention anywhere before the ICL stage.
+The ceiling column credits the removed stage with zero replacement cost and is computed
+from the H=62 row in section 1.
 
-## 4. What the replacement encoder has to preserve
+**This branch builds rung 4**, because it is the rung that answers the question. Rung 3
+is a hedge against M1 mattering, and it only earns its complexity if rung 4 loses. Rung
+2 is the cheap probe that isolates M1 on its own and needs no new module -- gating
+`src = self.tf_col(src, ...)` in `_compute_embeddings` yields `in_linear(features)`
+directly, since the checkpoint has `col_affine=False`.
 
-The column stage is not only expensive, it does a specific job: a set transformer over
-rows gives each column an embedding conditioned on that column's own distribution and
-on y. That is what lets one model read tables whose columns it has never seen, and it
-is why column order can be permuted to build the 8-member ensemble.
+## 4. What rung 4 is
 
-A naive replacement — a shared per-cell MLP, mean-pooled over columns — throws this
-away. It treats every column identically, so the row representation becomes a bag of
-values with no column identity, and nearly all signal is lost. Two ways to keep column
-identity without attention:
+`ProjectionEncoder` (`src/tabicl/_model/projection.py`): pad or truncate the row to
+`proj_max_features`, an MLP to `embed_dim * row_num_cls`, then `LayerNorm(embed_dim)`
+per CLS chunk to meet the section-2 contract. Rows are independent, so inference streams
+them in chunks and nothing larger than the output is materialized.
 
-- **Per-column statistics as the column's code.** Compute cheap closed-form summaries
-  of each column from the context rows (mean, sd, quartiles, covariance with y), map
-  them through a small MLP to a 128-d column code, concatenate that code to each cell
-  value, and sum or mean over columns. This uses the same information the set
-  transformer uses — the column's distribution conditioned on y — computed in closed
-  form instead of with 3 ISAB blocks. It keeps variable width and column-order
-  invariance.
-- **A learned per-column embedding table.** Simpler and strictly stronger for a
-  fixed-width application, but it fixes H at training time and so gives up the
-  foundation-model property. Reasonable as a control, not as the deliverable.
+Selected by `TabICL(row_encoder="projection")`, which **builds neither attention stage**,
+so the resulting checkpoint carries no `col_embedder` or `row_interactor` weights. The
+default stays `"attention"` and that path is unchanged;
+`tests/test_prediction_consistency.py` passes against its stored `.npy` references.
 
-The first is the candidate to build. The second is worth training alongside it as an
-upper bound on what a fixed-width encoder can do.
+`TabICL.with_pretrained_icl(checkpoint, ...)` builds a projection model holding a
+checkpoint's ICL weights and a fresh encoder, which no single `load_state_dict`
+expresses: the checkpoint has keys this model does not want and lacks the ones it needs.
+It refuses overrides that would change an ICL-shaping parameter.
 
-### What the candidate costs
+### What it removes, all at once
 
-A 0.381 M-parameter sketch of the statistics encoder — 6 context statistics per column
-through an MLP to a 128-d code, concatenated to each cell value, a 2-layer cell MLP,
-mean over columns, then an MLP to 512 and a LayerNorm — measured at the same shape and
-on the same GPU, with the column code computed once per fold and rows streamed in
-chunks of 16,384:
+Four things, and a drop in accuracy cannot be attributed to any one of them without the
+intermediate rungs:
 
-| H | replacement | peak GPU | pretrained col+row | stage speedup | model total before | after | overall |
-|---|---|---|---|---|---|---|---|
-| 23 | 0.018 s | 0.78 GB | 0.223 s | 12.4x | 0.328 s | 0.123 s | 2.7x |
-| 62 | 0.033 s | 1.77 GB | 0.501 s | 15.2x | 0.604 s | 0.136 s | 4.4x |
-| 100 | 0.053 s | 2.74 GB | 0.768 s | 14.5x | 0.878 s | 0.164 s | 5.4x |
-| 200 | 0.104 s | 5.29 GB | 1.810 s | 17.4x | 1.938 s | 0.231 s | 8.4x |
-| 720 | 0.363 s | 18.52 GB | 5.952 s | 16.4x | 6.081 s | 0.492 s | 12.4x |
+1. **Context conditioning** -- a cell's embedding no longer depends on its column's
+   distribution across the context rows.
+2. **Target awareness** -- y reaches the model only where `ICLearning` adds it.
+3. **Feature interaction** -- no attention across a row's features.
+4. **Column-order invariance** -- each input position has its own weights.
 
-The `after` column pairs the replacement with the ICL time measured for that width in
-the table above, so both halves come from the same run. The ICL stage on its own peaks
-at 1.13 GB against 11.57 GB for the full pipeline at H=62, so the new memory floor is
-set by the encoder's chunk and not by the ICL stage. The replacement's own peak still
-grows with H at a fixed chunk, but unlike the attention stages it shrinks freely with
-the chunk, because nothing attends over the per-cell tensor before it is reduced.
+(4) has a consequence beyond accuracy. `TabICLRegressor` builds its 8 members from 4
+feature shuffles crossed with 2 normalization methods (`EnsembleGenerator`,
+`norm_methods=["none","power"]`). Feature shuffling is no longer a symmetry, so the
+ensemble collapses to the 2 normalization members: a further 4x saving *and* a loss of
+whatever variance reduction the shuffles bought. Those must be priced separately from
+the architecture, or one will be read as the other.
 
-These are the ceiling, not a result: an untrained encoder of the right shape. They say
-what the speedup would be if a trained encoder of this size reaches the ICL stage's
-input manifold, which is exactly what phase 1 of section 5 tests. The architecture
-being 15x faster is not evidence that it works.
+### Measured cost
 
-### Consequence for the ensemble
+Encoder and full forward at the section-1 shape, with `proj_max_features = H`, against
+the attention model's totals from the same table:
 
-`TabICLRegressor` builds its 8 members from feature shuffles crossed with
-normalization methods (`EnsembleGenerator`, `norm_methods=["none","power"]`). A
-column-order-invariant encoder makes the feature shuffles a no-op, leaving 2 distinct
-members. That is a further 4x inference saving, and a loss of whatever variance
-reduction the shuffles were buying. The benchmark must therefore compare
-like-for-like: either report the new model at `n_estimators=2` against the old at 8
-(the honest end-to-end comparison), or hold the ensemble fixed and compare per-member.
-Both numbers should appear.
+| H | encoder params | encoder | full forward | peak GPU | attention forward | attention peak | time | memory |
+|---|---|---|---|---|---|---|---|---|
+| 23 | 0.550 M | 0.003 s | 0.097 s | 1.13 GB | 0.328 s | 4.81 GB | 3.4x | 4.2x |
+| 62 | 0.589 M | 0.003 s | 0.096 s | 1.14 GB | 0.604 s | 11.57 GB | 6.3x | 10.1x |
+| 100 | 0.628 M | 0.003 s | 0.098 s | 1.15 GB | 0.878 s | 18.15 GB | 9.0x | 15.7x |
+| 200 | 0.731 M | 0.004 s | 0.099 s | 1.18 GB | 1.938 s | 30.09 GB | 19.6x | 25.6x |
+| 720 | 1.263 M | 0.005 s | 0.098 s | 1.29 GB | 6.081 s | 45.19 GB | 62.2x | 35.0x |
+
+The encoder costs 3-5 ms at every width, so the full forward is the ICL stage and
+almost nothing else -- flat at ~0.097 s and ~1.15 GB from H=23 to H=720. Feature width
+has stopped being a cost at all, which is the whole point of the rung: the model's
+remaining work does not see it.
+
+The ICL weights load byte-identically (0 of 223 tensors differ), and the encoder's
+output satisfies the contract: per-128-chunk mean -0.0000, sd 1.0037.
+
+**These are the ceiling, not a result.** The encoder is untrained. What they say is what
+the saving would be *if* training succeeds; the architecture being faster is not
+evidence that it works.
 
 ## 5. Training
 
-The infrastructure needed already exists and does not have to be built:
+Infrastructure that already exists and does not have to be built: `tabicl.train`
+pretrains from the synthetic prior with `--freeze_col/--freeze_row/--freeze_icl`
+(`train/_train_config.py`), and `tabicl._finetune` finetunes with the same flags
+(`_finetune/base.py:288-290`), covered by `tests/test_finetune_freezing.py`.
 
-- `tabicl.train` pretrains from the synthetic prior, on the fly or from a prior
-  directory, with `--freeze_col`, `--freeze_row`, `--freeze_icl`
-  (`train/_train_config.py:286,300,311`).
-- `tabicl._finetune` finetunes with the same three flags
-  (`_finetune/base.py:288-290`), and `tests/test_finetune_freezing.py` already covers
-  every combination.
+This branch adds `--row_encoder`, `--proj_max_features` and `--freeze_proj`, and
+`_run.py` refuses `--proj_max_features` below `--max_features` rather than silently
+truncating the widest prior tables.
 
-Two phases, cheapest first:
+The run that answers the question: **the prior, with the ICL stage frozen**
+(`--row_encoder projection --freeze_icl true`), against the real quantile loss. Freezing
+ICL is what keeps the result interpretable -- it asks whether a projected representation
+is readable by the ICL stage as trained, not whether some jointly trained pair of
+networks works.
 
-1. **Distillation in representation space.** Freeze the whole pretrained model, run
-   prior tables through `col_embedder` + `row_interactor` to get target R, and train
-   the replacement encoder to regress onto it under L2 plus a cosine term. No ICL
-   forward pass, no labels, no quantile loss. This is the cheap experiment that says
-   whether a non-attentive encoder can reach the ICL stage's input manifold at all,
-   and it should be run before anything else.
-2. **End-to-end with ICL frozen** (`--freeze_icl true`), on the prior, against the
-   real quantile loss. Unfreezing the ICL stage (variant D') is a fallback if the
-   frozen ICL stage turns out to be unreachable; it costs the ability to claim the
-   pretrained ICL weights are being reused unchanged.
+**The environment cannot train yet.** `ppb-inference`, which ran every benchmark here,
+lacks `xgboost` and `transformers`, so `tabicl.prior` will not import and
+`tests/test_finetune_freezing.py` will not collect. Training needs the `pretrain` extra
+(`transformers`, `xgboost`, `wandb`) in an environment of its own -- not added to
+`ppb-inference`, so the measured inference numbers stay reproducible. Until that exists,
+the new `--row_encoder` flags are wired but unexercised end to end.
 
-## 6. Code changes required
+Two notes on scale. The prior defaults to `--max_features 100` and `--max_seq_len 1024`,
+so `proj_max_features` must rise to cover a 720-column target and the 720-d
+configurations are out of reach of a default prior run. And distillation onto the
+pretrained R is *not* the right first move here, as it was for rung 3: R is a function
+of the context distribution and a fixed projection of one row cannot match it, so the
+distillation error is bounded below by something that has nothing to do with whether the
+ablation works.
 
-In `tabicl`:
+## 6. Remaining code changes
 
-- A new `src/tabicl/_model/row_encoder.py` holding the replacement, with the same
-  `forward(X, y_train, ...)` and `InferenceManager` batching contract the other two
-  stages use.
-- `TabICL.__init__` gains a flag selecting the encoder (default off, so the
-  pretrained path is untouched) and `_train_forward` / `_inference_forward` branch on
-  it. `InferenceConfig` gains a config for the new stage or reuses `ROW_CONFIG`.
-- A training entry point and a checkpoint carrying the new config keys.
-  `_sklearn/regressor.py::_load_model` already accepts a local `model_path`, so a
-  locally trained checkpoint needs no loader changes.
-
-In `proppredict` (branch `feature/tabicl-inference`):
-
-- `models/tabicl_model.py::checkpoint_info` always calls
-  `hf_hub_download(repo_id=HF_REPO_ID, ...)` and has no local-file branch, and
-  `fit_fold` checks the resulting sha256 against the recorded run. Evaluating a
-  locally trained checkpoint needs `checkpoint_version` to accept an existing path,
-  still hashing and recording it. This is small and is the only change the harness
-  needs.
+- **Checkpoint** carrying the new config keys. `_sklearn/regressor.py::_load_model`
+  already accepts a local `model_path`, so no loader change is needed.
+- **`proppredict`** (`feature/tabicl-inference`): `models/tabicl_model.py::checkpoint_info`
+  always calls `hf_hub_download(repo_id=HF_REPO_ID, ...)` with no local-file branch, and
+  `fit_fold` checks the resulting sha256 against the recorded run. Evaluating a locally
+  trained checkpoint needs `checkpoint_version` to accept an existing path, still hashing
+  and recording it. This is the only change the harness needs.
 
 ## 7. Evaluation
 
-- **Representation fidelity.** Distillation MSE and per-chunk cosine against the
-  pretrained R, on held-out prior tables. Reported before any downstream number.
-- **PPB performance.** Re-run the 5x5 folds for `tabicl_monroe_pca62` and
-  `tabicl_monroe` and compare R2, MAE and Spearman against
-  `benchmarks/ppb_performance/metrics_table.csv`, through the same Westfall-Young maxT
-  bootstrap over test compounds already used there.
-- **Inference speed.** Re-run `benchmarks/ppb_inference` for a new h/1M row.
-- **Regression tests.** `tests/test_prediction_consistency.py`, `tests/test_inference.py`
-  and `tests/test_inference_with_cache.py` must still pass with the flag off, which is
-  what keeps the default path honest.
+- **PPB performance.** Re-run the 5x5 folds for `tabicl_monroe_pca62` and compare R2, MAE
+  and Spearman against `benchmarks/ppb_performance/metrics_table.csv` through the same
+  Westfall-Young maxT bootstrap over test compounds used there.
+- **The assumption's boundary.** Run rung 4 on `tabicl_rdkit` as well -- 200 raw
+  physicochemical descriptors on heterogeneous scales, 14 of them zero-variance. The PPB
+  embedding targets are PCA projections of a learned encoder, which is a **favorable case
+  for the assumption, not a neutral one**: orthogonal dimensions with ordered variance,
+  on top of TabICL's own normalization. If rung 4 holds on PCA inputs and collapses on
+  rdkit, that is the boundary measured rather than argued, and it is the difference
+  between "fixed-width grounded embeddings do not need M1" and "nothing needs M1".
+- **Inference speed.** Re-run `benchmarks/ppb_inference` for a new h/1M row, reporting
+  the 2-member and 8-member ensembles separately.
+- **Regression.** `tests/test_prediction_consistency.py`, `tests/test_inference.py`,
+  `tests/test_inference_with_cache.py` and `tests/test_oom_retry.py` with the flag off
+  (36 passed, 25 skipped at the time of writing), plus
+  `tests/test_projection_encoder.py`.
 
 **Prerequisite, and it is not optional.** TabICL derives inference batch sizes from GPU
-memory free at predict time, and varying batch size alone moves individual predictions
-by up to 1.4e-02 on a target of sd ~0.6 (measured under fixed code, safety_factor 0.9
-vs 0.05). Any before/after comparison must pin `inference_config` explicitly on both
-sides, or that drift will be read as an effect of the architecture change.
+memory free at predict time, and varying batch size alone moves individual predictions by
+up to 1.4e-02 on a target of sd ~0.6 (measured under fixed code, safety_factor 0.9 vs
+0.05). Any before/after comparison must pin `inference_config` on both sides, or that
+drift will be read as an effect of the architecture change.
 
 ## 8. Out of scope
 
 The ICL stage's own architecture; the synthetic prior; the preprocessing and
-normalization pipeline; the classification path, finetuning and forecasting entry
-points; and anything that changes the numbers already reported in
+normalization pipeline; the classification, finetuning and forecasting paths; and
+anything that changes the numbers already reported in
 `benchmarks/ppb_performance/report.md`.

@@ -6,6 +6,7 @@ from torch import nn, Tensor
 
 from .embedding import ColEmbedding
 from .interaction import RowInteraction
+from .projection import ProjectionEncoder
 from .learning import ICLearning
 from .quantile_dist import QuantileToDistribution
 from .kv_cache import TabICLCache
@@ -148,6 +149,25 @@ class TabICL(nn.Module):
 
     recompute : bool, default=False
         If True, uses gradient checkpointing to save memory at the cost of additional computation.
+
+    row_encoder : Literal["attention", "projection"], default="attention"
+        Which encoder produces the row representations the in-context learning stage reads.
+
+        - "attention": the two pretrained stages, column-wise embedding then row-wise
+          interaction. This is TabICL as published and as shipped in every checkpoint.
+        - "projection": the terminal ablation. Neither attention stage is built; a row
+          vector is projected to ``embed_dim * row_num_cls`` by an MLP
+          (:class:`~tabicl._model.projection.ProjectionEncoder`). The checkpoint then
+          holds no ``col_embedder`` or ``row_interactor`` weights. See
+          ``docs/design/no_col_row_attention.md``.
+
+    proj_max_features : int, default=100
+        Width the input is padded or truncated to when ``row_encoder="projection"``.
+        Inputs wider than this lose their trailing columns, so it must be at least the
+        feature count of every table the model will see. Ignored otherwise.
+
+    proj_chunk_size : int, default=65536
+        Rows per forward chunk when ``row_encoder="projection"``. Ignored otherwise.
     """
 
     def __init__(
@@ -198,6 +218,9 @@ class TabICL(nn.Module):
         bias_free_ln: bool = False,
         zero_init: bool = True,
         recompute: bool = False,
+        row_encoder: Literal["attention", "projection"] = "attention",
+        proj_max_features: int = 100,
+        proj_chunk_size: int = 65536,
     ):
         super().__init__()
         icl_dim = embed_dim * row_num_cls  # CLS tokens are concatenated for ICL
@@ -237,42 +260,62 @@ class TabICL(nn.Module):
         self.bias_free_ln = bias_free_ln
         self.zero_init = zero_init
 
-        self.col_embedder = ColEmbedding(
-            embed_dim=embed_dim,
-            num_blocks=col_num_blocks,
-            nhead=col_nhead,
-            num_inds=col_num_inds,
-            dim_feedforward=embed_dim * ff_factor,
-            dropout=dropout,
-            activation=activation,
-            norm_first=norm_first,
-            bias_free_ln=bias_free_ln,
-            affine=col_affine,
-            feature_group=col_feature_group,
-            feature_group_size=col_feature_group_size,
-            target_aware=col_target_aware,
-            max_classes=max_classes,
-            reserve_cls_tokens=row_num_cls,
-            ssmax=col_ssmax,
-            zero_init=zero_init,
-            recompute=recompute,
-        )
+        if row_encoder not in ("attention", "projection"):
+            raise ValueError(f"row_encoder must be 'attention' or 'projection', got '{row_encoder}'")
+        self.row_encoder = row_encoder
+        self.proj_max_features = proj_max_features
+        self.proj_chunk_size = proj_chunk_size
 
-        self.row_interactor = RowInteraction(
-            embed_dim=embed_dim,
-            num_blocks=row_num_blocks,
-            nhead=row_nhead,
-            dim_feedforward=embed_dim * ff_factor,
-            num_cls=row_num_cls,
-            rope_base=row_rope_base,
-            rope_interleaved=row_rope_interleaved,
-            dropout=dropout,
-            activation=activation,
-            norm_first=norm_first,
-            bias_free_ln=bias_free_ln,
-            zero_init=zero_init,
-            recompute=recompute,
-        )
+        if row_encoder == "projection":
+            # Terminal ablation: the two attention stages are not built at all, so the
+            # checkpoint carries no weights for them. See _model/projection.py.
+            self.proj_encoder = ProjectionEncoder(
+                max_features=proj_max_features,
+                embed_dim=embed_dim,
+                num_cls=row_num_cls,
+                ff_factor=ff_factor,
+                dropout=dropout,
+                activation=activation,
+                bias_free_ln=bias_free_ln,
+                chunk_size=proj_chunk_size,
+            )
+        else:
+            self.col_embedder = ColEmbedding(
+                embed_dim=embed_dim,
+                num_blocks=col_num_blocks,
+                nhead=col_nhead,
+                num_inds=col_num_inds,
+                dim_feedforward=embed_dim * ff_factor,
+                dropout=dropout,
+                activation=activation,
+                norm_first=norm_first,
+                bias_free_ln=bias_free_ln,
+                affine=col_affine,
+                feature_group=col_feature_group,
+                feature_group_size=col_feature_group_size,
+                target_aware=col_target_aware,
+                max_classes=max_classes,
+                reserve_cls_tokens=row_num_cls,
+                ssmax=col_ssmax,
+                zero_init=zero_init,
+                recompute=recompute,
+            )
+
+            self.row_interactor = RowInteraction(
+                embed_dim=embed_dim,
+                num_blocks=row_num_blocks,
+                nhead=row_nhead,
+                dim_feedforward=embed_dim * ff_factor,
+                num_cls=row_num_cls,
+                rope_base=row_rope_base,
+                rope_interleaved=row_rope_interleaved,
+                dropout=dropout,
+                activation=activation,
+                norm_first=norm_first,
+                bias_free_ln=bias_free_ln,
+                zero_init=zero_init,
+                recompute=recompute,
+            )
 
         self.icl_predictor = ICLearning(
             out_dim=out_dim,
@@ -292,6 +335,98 @@ class TabICL(nn.Module):
 
         # KV cache for efficient inference
         self._cache: Optional[TabICLCache] = None
+
+    @classmethod
+    def with_pretrained_icl(
+        cls,
+        checkpoint: "str | Path | dict",
+        strict_config: bool = True,
+        **overrides,
+    ) -> "TabICL":
+        """Build a ``row_encoder="projection"`` model holding a checkpoint's ICL weights.
+
+        The point of the projection ablation is to ask whether the pretrained
+        in-context-learning stage can read a representation that no attention produced.
+        That requires its 27.3 M parameters to be the trained ones and the encoder to be
+        fresh, which no single ``load_state_dict`` call expresses: the checkpoint has
+        ``col_embedder`` and ``row_interactor`` keys that this model does not want, and
+        lacks the ``proj_encoder`` keys it needs.
+
+        Parameters
+        ----------
+        checkpoint : str or Path or dict
+            A checkpoint path, or an already-loaded checkpoint dict carrying "config"
+            and "state_dict".
+
+        strict_config : bool, default=True
+            If True, raises when ``overrides`` would change a parameter the ICL stage's
+            shapes depend on (``embed_dim``, ``row_num_cls``, ``icl_num_blocks``,
+            ``icl_nhead``, ``ff_factor``, ``max_classes``, ``num_quantiles``), since the
+            pretrained weights would then not load.
+
+        **overrides
+            Config entries to replace, e.g. ``proj_max_features=200``.
+
+        Returns
+        -------
+        TabICL
+            A model whose ``icl_predictor`` is the checkpoint's and whose
+            ``proj_encoder`` is freshly initialized.
+
+        Raises
+        ------
+        ValueError
+            If the checkpoint holds no ICL weights, or if ``strict_config`` is True and
+            an override would change an ICL-shaping parameter.
+        """
+        from pathlib import Path as _Path
+
+        if isinstance(checkpoint, dict):
+            ckpt = checkpoint
+        else:
+            ckpt = torch.load(_Path(checkpoint), map_location="cpu", weights_only=False)
+        if "config" not in ckpt or "state_dict" not in ckpt:
+            raise ValueError("Checkpoint must contain both 'config' and 'state_dict'.")
+
+        config = dict(ckpt["config"])
+        config.pop("recompute", None)
+
+        icl_shaping = {
+            "embed_dim",
+            "row_num_cls",
+            "icl_num_blocks",
+            "icl_nhead",
+            "ff_factor",
+            "max_classes",
+            "num_quantiles",
+        }
+        if strict_config:
+            clashes = {
+                k: (config.get(k), v) for k, v in overrides.items() if k in icl_shaping and config.get(k) != v
+            }
+            if clashes:
+                detail = ", ".join(f"{k}: checkpoint {was!r} vs override {now!r}" for k, (was, now) in clashes.items())
+                raise ValueError(
+                    f"These overrides change parameters the pretrained ICL weights depend on ({detail}). "
+                    f"Pass strict_config=False to build the model anyway, knowing those weights will not load."
+                )
+
+        config.update(overrides)
+        config["row_encoder"] = "projection"
+        model = cls(**config)
+
+        icl_state = {k: v for k, v in ckpt["state_dict"].items() if k.startswith("icl_predictor.")}
+        if not icl_state:
+            raise ValueError("Checkpoint contains no 'icl_predictor.*' weights to load.")
+        missing, unexpected = model.load_state_dict(icl_state, strict=False)
+        unexpected = [k for k in unexpected if not k.startswith(("col_embedder.", "row_interactor."))]
+        if unexpected:
+            raise ValueError(f"Checkpoint ICL weights did not match this model: unexpected keys {unexpected}.")
+        still_missing = [k for k in missing if k.startswith("icl_predictor.")]
+        if still_missing:
+            raise ValueError(f"Checkpoint is missing ICL weights this model needs: {still_missing}.")
+
+        return model
 
     @property
     def has_cache(self) -> bool:
@@ -344,16 +479,19 @@ class TabICL(nn.Module):
         if d is not None and len(d.unique()) == 1 and d[0] == H:
             d = None
 
-        # Column-wise embedding -> Row-wise interaction
-        representations = self.row_interactor(
-            self.col_embedder(
-                X,
-                y_train=y_train,
+        # Column-wise embedding -> Row-wise interaction, or the projection ablation
+        if self.row_encoder == "projection":
+            representations = self.proj_encoder(X)
+        else:
+            representations = self.row_interactor(
+                self.col_embedder(
+                    X,
+                    y_train=y_train,
+                    d=d,
+                    embed_with_test=embed_with_test,
+                ),
                 d=d,
-                embed_with_test=embed_with_test,
-            ),
-            d=d,
-        )
+            )
 
         # Dataset-wise in-context learning
         return self.icl_predictor(representations, y_train=y_train)
@@ -418,17 +556,20 @@ class TabICL(nn.Module):
         if inference_config is None:
             inference_config = InferenceConfig()
 
-        # Column-wise embedding -> Row-wise interaction
-        representations = self.row_interactor(
-            self.col_embedder(
-                X,
-                y_train=y_train,
-                embed_with_test=embed_with_test,
-                feature_shuffles=feature_shuffles,
-                mgr_config=inference_config.COL_CONFIG,
-            ),
-            mgr_config=inference_config.ROW_CONFIG,
-        )
+        # Column-wise embedding -> Row-wise interaction, or the projection ablation
+        if self.row_encoder == "projection":
+            representations = self.proj_encoder(X)
+        else:
+            representations = self.row_interactor(
+                self.col_embedder(
+                    X,
+                    y_train=y_train,
+                    embed_with_test=embed_with_test,
+                    feature_shuffles=feature_shuffles,
+                    mgr_config=inference_config.COL_CONFIG,
+                ),
+                mgr_config=inference_config.ROW_CONFIG,
+            )
 
         # Dataset-wise in-context learning
         out = self.icl_predictor(
@@ -741,18 +882,23 @@ class TabICL(nn.Module):
             X = X_test
             y_train = None
 
-        # Column-wise embedding with cache support -> Row-wise interaction
-        representations = self.row_interactor(
-            self.col_embedder.forward_with_cache(
-                X,
-                col_cache=self._cache.col_cache,
-                y_train=y_train,
-                use_cache=use_cache,
-                store_cache=store_cache,
-                mgr_config=inference_config.COL_CONFIG,
-            ),
-            mgr_config=inference_config.ROW_CONFIG,
-        )
+        # Column-wise embedding with cache support -> Row-wise interaction.
+        # The projection encoder is a per-row map with no cross-row state, so there is
+        # nothing to cache in it; only the ICL stage's cache below does any work.
+        if self.row_encoder == "projection":
+            representations = self.proj_encoder(X)
+        else:
+            representations = self.row_interactor(
+                self.col_embedder.forward_with_cache(
+                    X,
+                    col_cache=self._cache.col_cache,
+                    y_train=y_train,
+                    use_cache=use_cache,
+                    store_cache=store_cache,
+                    mgr_config=inference_config.COL_CONFIG,
+                ),
+                mgr_config=inference_config.ROW_CONFIG,
+            )
 
         # Dataset-wise in-context learning
         if cache_mode == "repr":

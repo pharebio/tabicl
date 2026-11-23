@@ -299,6 +299,27 @@ def build_parser():
     )
     parser.add_argument("--freeze_row", default=False, type=str2bool, help="Whether to freeze the row interactor")
 
+    # Row encoder selection (see docs/design/no_col_row_attention.md)
+    parser.add_argument(
+        "--row_encoder",
+        default="attention",
+        choices=["attention", "projection"],
+        help="Which encoder feeds the ICL stage. 'attention' is TabICL as published: column-wise "
+        "embedding then row-wise interaction. 'projection' is the terminal ablation: neither "
+        "attention stage is built and an MLP projects each row to embed_dim * row_num_cls. With "
+        "'projection', --col_* and --row_* options and --freeze_col/--freeze_row have no effect.",
+    )
+    parser.add_argument(
+        "--proj_max_features",
+        type=int,
+        default=100,
+        help="Width the input is padded or truncated to when --row_encoder=projection. Must be at "
+        "least --max_features, or training tables lose their trailing columns.",
+    )
+    parser.add_argument(
+        "--freeze_proj", default=False, type=str2bool, help="Whether to freeze the projection encoder"
+    )
+
     # ICL Config
     parser.add_argument("--icl_num_blocks", type=int, default=12, help="Number of transformer blocks in ICL predictor")
     parser.add_argument("--icl_nhead", type=int, default=4, help="Number of attention heads in ICL predictor")

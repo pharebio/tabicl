@@ -233,7 +233,19 @@ class Trainer:
             "bias_free_ln": bias_free_ln,
             "zero_init": self.config.zero_init,
             "recompute": self.config.recompute,
+            "row_encoder": getattr(self.config, "row_encoder", "attention"),
+            "proj_max_features": getattr(self.config, "proj_max_features", 100),
         }
+
+        if self.model_config["row_encoder"] == "projection":
+            if self.config.proj_max_features < self.config.max_features:
+                raise ValueError(
+                    f"--proj_max_features ({self.config.proj_max_features}) is below --max_features "
+                    f"({self.config.max_features}), so the widest prior tables would lose their "
+                    f"trailing columns."
+                )
+            if self.master_process and (self.config.freeze_col or self.config.freeze_row):
+                print("--freeze_col/--freeze_row have no effect with --row_encoder=projection.")
 
         model = TabICL(**self.model_config)
         model.to(device=self.config.device)
@@ -243,14 +255,19 @@ class Trainer:
             print(f"Model has {num_params} parameters.")
 
         # Freeze model components if requested
-        if self.config.freeze_col:
+        if self.config.freeze_col and hasattr(model, "col_embedder"):
             model.col_embedder.eval()
             for param in model.col_embedder.parameters():
                 param.requires_grad = False
 
-        if self.config.freeze_row:
+        if self.config.freeze_row and hasattr(model, "row_interactor"):
             model.row_interactor.eval()
             for param in model.row_interactor.parameters():
+                param.requires_grad = False
+
+        if getattr(self.config, "freeze_proj", False) and hasattr(model, "proj_encoder"):
+            model.proj_encoder.eval()
+            for param in model.proj_encoder.parameters():
                 param.requires_grad = False
 
         if self.config.freeze_icl:
