@@ -223,13 +223,36 @@ lacks `xgboost` and `transformers`, so `tabicl.prior` will not import and
 `ppb-inference`, so the measured inference numbers stay reproducible. Until that exists,
 the new `--row_encoder` flags are wired but unexercised end to end.
 
-Two notes on scale. The prior defaults to `--max_features 100` and `--max_seq_len 1024`,
-so `proj_max_features` must rise to cover a 720-column target and the 720-d
-configurations are out of reach of a default prior run. And distillation onto the
-pretrained R is *not* the right first move here, as it was for rung 3: R is a function
-of the context distribution and a fixed projection of one row cannot match it, so the
-distillation error is bounded below by something that has nothing to do with whether the
-ablation works.
+### Feature width becomes a model parameter
+
+This is rung 4's largest hidden cost, and it is worth stating separately from accuracy.
+
+**In attention mode no parameter depends on H.** `ColEmbedding.in_linear` maps a single
+cell value (or a group of 3) to `embed_dim`, `y_encoder` is `Linear(1, embed_dim)`, and
+`RowInteraction.cls_tokens` is `(num_cls, embed_dim)`. Nothing is sized by feature count,
+which is why the pretrained checkpoint reads 23, 62, 720 and 2,048 columns without
+modification -- `tabicl_monroe` (720) and `tabicl_chemeleon` (2,048) are both in
+`benchmarks/ppb_inference/inference_speed_per_1M.csv`.
+
+`ProjectionEncoder` introduces the first H-sized parameter in the model,
+`Linear(proj_max_features, d_model * ff_factor)`. A model built at
+`proj_max_features=720` cannot read a 721-column table, and one built at 100 silently
+drops columns beyond the hundredth. Giving up arbitrary width is part of the assumption
+being priced, not an implementation detail: it is the difference between a tabular
+foundation model and a model for one feature layout.
+
+The prior's `--max_features` is a plain flag with default 100 and no upper bound
+(`_dataset.py:131` asserts only `min_features <= max_features`), so training wider is a
+matter of compute, not possibility. The real constraint is that the prior must generate
+tables at least as wide as the deployment width, or the projection's later input
+positions never receive gradient. Note `adjust_max_features` clamps width for long
+sequences, but only above `seq_len > 10240`, so it never fires at the default
+`--max_seq_len 1024`.
+
+One note on method: distillation onto the pretrained R is *not* the right first move
+here, as it was for rung 3. R is a function of the context distribution and a fixed
+projection of one row cannot match it, so the distillation error is bounded below by
+something that has nothing to do with whether the ablation works.
 
 ## 6. Remaining code changes
 
