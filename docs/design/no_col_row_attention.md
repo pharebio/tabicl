@@ -82,8 +82,22 @@ model.
 `ColEmbedding` turns every cell into a 128-d vector, so the tensor handed to
 `RowInteraction` has shape `(B, T, H+4, 128)`. At H=62 and T=55,626 that is 1.9 GB in
 fp32 against the table's own 14 MB -- a 128-fold per-cell expansion that then gets
-collapsed back to 512 numbers per row. The peak-memory column above is mostly this
-tensor and the row stage's attention intermediates over it.
+collapsed back to 512 numbers per row.
+
+The peak belongs to the column stage alone. Measured at T=55,147 by running the stages
+one at a time, `col_embedder` on its own peaks at 11.47 GB (H=62), 30.16 GB (H=200) and
+44.96 GB (H=720) -- and adding `row_interactor` then `icl_predictor` raises the peak by
+**0.00 GB** at every width, because by the time they run the column stage's intermediates
+are freed and their own working sets sit below the earlier high-water mark. The output
+tensor itself is only 1.86 / 5.76 / 20.44 GB, so the rest is the induced-attention
+intermediates over the row axis.
+
+This splits the two stages cleanly and in opposite directions: the column stage owns the
+memory and the row stage owns the time (0.300 s vs 0.201 s at H=62, 3.376 s vs 2.577 s
+at H=720). An earlier version of this file said the peak was "mostly this tensor and the
+row stage's attention intermediates over it", which the measurement contradicts.
+Note the attribution is for inference under `no_grad`; in training the row stage must
+retain its intermediates for the backward pass, so it would contribute there.
 
 A per-cell expansion of some size is hard to avoid; what the attention stages add is
 that the expanded tensor must be *attended over*. Removing both stages does not remove

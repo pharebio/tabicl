@@ -39,6 +39,7 @@ NOTES = {
     "chemprop_monroe_pca200": "Monroe pass + PCA projection, then chemprop",
     "tabicl_monroe_pca200": "Monroe pass + PCA projection",
     "tabicl_monroe_pca62": "Monroe pass + PCA projection",
+    "tabicl_monroe_pca62_noattn": "Monroe pass + PCA; column/row attention removed, ICL kept",
     "tabicl_monroe_pca23": "Monroe pass + PCA projection",
     "tabicl_monroe_pca100": "Monroe pass + PCA projection",
     "rf_monroe": "Monroe pass, then a 100-tree forest",
@@ -138,10 +139,12 @@ def main():
              "generation plus the GRIT encoder, and the two\nshards differ (274 vs 185 molecules/s), so a "
              "shard-0-only figure understates it by 24%.",
              fontsize=7, color=INK2)
+    # left=0.205 fits the longest model name (tabicl_monroe_pca62_noattn) at fontsize 9;
+    # 0.175 clipped it.
     # Fixed margins in inches rather than tight_layout, which cannot place two panels with
     # out-of-axes labels and silently clipped the model names off the left edge.
     h = fig.get_figheight()
-    fig.subplots_adjust(left=0.175, right=0.995, top=1 - 0.92 / h, bottom=1.95 / h)
+    fig.subplots_adjust(left=0.205, right=0.995, top=1 - 0.92 / h, bottom=1.95 / h)
     out = HERE / "inference_speed_per_1M.png"
     fig.savefig(out, facecolor="white")
     print(f"wrote {out}")
