@@ -24,10 +24,14 @@
 #   --freeze_icl True          the point of the experiment
 #   --muon False, --lr 1e-3    the encoder is fresh, not being finetuned; stage 3's 2e-5
 #                              is a finetuning rate for pretrained weights
-#   --max_seq_len 10000        below stage 3's 60000 to fit one 48 GB card. Raise it
-#                              toward 60000 on more memory; the ICL stage was pretrained
-#                              up to 60000 so there is headroom, not a limit.
-#   --recompute True           gradient checkpointing, for the same reason
+#   --max_seq_len 10000        below stage 3's 60000. Length matters less here than it did
+#                              for stage 3: the encoder is a per-row map, so it is
+#                              structurally length-agnostic, and the only stage that sees
+#                              length is frozen and was pretrained up to 60000.
+#   --micro_batch_size 4       stage 3 used 1 across 4 GPUs. One card has room here because
+#   --recompute False          the two attention stages are gone -- the ablation no longer
+#                              builds a (T, H+4, 128) tensor to attend over, so gradient
+#                              checkpointing buys little and costs ~30% throughput.
 #
 # PYTHONNOUSERSITE is mandatory: ~/.local/lib/python3.12/site-packages otherwise enters
 # sys.path ahead of this environment's own packages.
@@ -37,6 +41,12 @@ set -euo pipefail
 WIDTH=${WIDTH:-62}                  # deployment feature width (tabicl_monroe_pca62)
 MAX_STEPS=${MAX_STEPS:-5000}
 BATCH_SIZE=${BATCH_SIZE:-16}
+MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE:-4}
+# Must be a multiple of MICRO_BATCH_SIZE: with --seq_len_per_gp True every group draws its
+# own sequence length, and a micro batch must be of one length (_run.py:673). Stage 3 used
+# 1 for both because it put one dataset on each of 4 GPUs.
+BATCH_SIZE_PER_GP=${BATCH_SIZE_PER_GP:-$MICRO_BATCH_SIZE}
+RECOMPUTE=${RECOMPUTE:-False}
 MAX_SEQ_LEN=${MAX_SEQ_LEN:-10000}
 N_JOBS=${N_JOBS:-16}
 SAVE_TEMP_EVERY=${SAVE_TEMP_EVERY:-50}
@@ -65,7 +75,7 @@ fi
             --torch_seed 43 \
             --max_steps "$MAX_STEPS" \
             --batch_size "$BATCH_SIZE" \
-            --micro_batch_size 1 \
+            --micro_batch_size "$MICRO_BATCH_SIZE" \
             --lr 1e-3 \
             --muon False \
             --beta1 0.9 \
@@ -81,7 +91,7 @@ fi
             --prior_type graph_scm \
             --prior_device cpu \
             --n_jobs "$N_JOBS" \
-            --batch_size_per_gp 1 \
+            --batch_size_per_gp "$BATCH_SIZE_PER_GP" \
             --min_features "$WIDTH" \
             --max_features "$WIDTH" \
             --min_seq_len 400 \
@@ -111,7 +121,7 @@ fi
             --zero_init False \
             --use_flash_attn3 True \
             --norm_type layernorm_nobias \
-            --recompute True \
+            --recompute "$RECOMPUTE" \
             --checkpoint_dir "$CKPT_DIR" \
             $RESUME_ARGS \
             --save_temp_every "$SAVE_TEMP_EVERY" \
