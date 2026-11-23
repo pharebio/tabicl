@@ -422,6 +422,21 @@ class TabICLRegressor(RegressorMixin, TabICLBaseEstimator):
         self.X_encoder_ = TransformToNumerical(verbose=self.verbose)
         X = self.X_encoder_.fit_transform(X)
 
+        # The projection encoder has per-position weights, so a column permutation is not
+        # a symmetry of it: shuffling would feed each ensemble member's weights a different
+        # feature and corrupt its predictions rather than merely diversify them. The
+        # ensemble then rests on the normalization methods alone.
+        if getattr(self.model_, "row_encoder", "attention") == "projection" and (
+            self.feat_shuffle_method not in ("none", None)
+        ):
+            raise ValueError(
+                f"This checkpoint uses row_encoder='projection', whose encoder is not "
+                f"column-order invariant, but feat_shuffle_method='{self.feat_shuffle_method}' "
+                f"would permute the feature columns of every ensemble member after the first. "
+                f"Pass feat_shuffle_method='none'. Note this leaves one member per entry in "
+                f"norm_methods, so n_estimators above that count has no effect."
+            )
+
         # Fit ensemble generator to create multiple dataset views
         self.ensemble_generator_ = EnsembleGenerator(
             classification=False,

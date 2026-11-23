@@ -167,12 +167,21 @@ intermediate rungs:
 3. **Feature interaction** -- no attention across a row's features.
 4. **Column-order invariance** -- each input position has its own weights.
 
-(4) has a consequence beyond accuracy. `TabICLRegressor` builds its 8 members from 4
-feature shuffles crossed with 2 normalization methods (`EnsembleGenerator`,
-`norm_methods=["none","power"]`). Feature shuffling is no longer a symmetry, so the
-ensemble collapses to the 2 normalization members: a further 4x saving *and* a loss of
-whatever variance reduction the shuffles bought. Those must be priced separately from
-the architecture, or one will be read as the other.
+(4) is a correctness requirement, not just an accuracy cost. `TabICLRegressor` builds
+its 8 members from 4 feature shuffles crossed with 2 normalization methods
+(`EnsembleGenerator`, `norm_methods=["none","power"]`), and the shuffle is applied by
+**physically permuting the columns** before the model sees them
+(`preprocessing.py:1182,1200,1215`, `X_preprocessed[:, feat_shuffle]`). Against
+per-position weights that permutation is not a symmetry: every member after the first
+would feed each weight column a different feature. That corrupts predictions rather than
+diversifying them.
+
+So `feat_shuffle_method="none"` is **mandatory** for a projection checkpoint, not a
+tuning choice, and `TabICLRegressor.fit` now raises if it is anything else. With it, the
+`Shuffler` returns a single identity pattern, so the ensemble is exactly one member per
+entry in `norm_methods` -- 2, with `n_estimators` above that having no effect. That is a
+further 4x saving *and* a loss of whatever variance reduction the shuffles bought; the
+two must be priced separately or one will be read as the other.
 
 ### Measured cost
 
@@ -236,10 +245,19 @@ modification -- `tabicl_monroe` (720) and `tabicl_chemeleon` (2,048) are both in
 
 `ProjectionEncoder` introduces the first H-sized parameter in the model,
 `Linear(proj_max_features, d_model * ff_factor)`. A model built at
-`proj_max_features=720` cannot read a 721-column table, and one built at 100 silently
-drops columns beyond the hundredth. Giving up arbitrary width is part of the assumption
-being priced, not an implementation detail: it is the difference between a tabular
-foundation model and a model for one feature layout.
+`proj_max_features=720` cannot read a 721-column table; wider input raises rather than
+being truncated, since dropping columns would yield a plausible wrong number. Giving up
+arbitrary width is part of the assumption being priced, not an implementation detail: it
+is the difference between a tabular foundation model and a model for one feature layout.
+
+It also changes how the prior should be configured. The prior emits X of shape
+`(seq_len, max_features)` zero-padded beyond a per-table `d`, and the attention stages
+mask that padding exactly. The projection encoder has no `d` and no mask, so a padding
+zero and a real zero are indistinguishable to it. Rather than reintroduce masking --
+having no notion of an absent feature is part of the assumption -- train with
+`--min_features` equal to `--max_features` equal to `proj_max_features`, so the encoder
+sees the deployment layout and spends no capacity on widths it will never meet. That
+makes it a per-width model, which is what the paragraph above already concedes.
 
 The prior's `--max_features` is a plain flag with default 100 and no upper bound
 (`_dataset.py:131` asserts only `min_features <= max_features`), so training wider is a
@@ -282,6 +300,12 @@ something that has nothing to do with whether the ablation works.
   `tests/test_inference_with_cache.py` and `tests/test_oom_retry.py` with the flag off
   (36 passed, 25 skipped at the time of writing), plus
   `tests/test_projection_encoder.py`.
+
+**Both optimizers are safe with a frozen ICL stage.** `configure_optimizer` hands every
+parameter to AdamW or Muon regardless of `requires_grad`, but both skip parameters whose
+grad is None (`_muon.py:124,179`), so frozen weights are neither decayed nor updated.
+Checked because silent corruption of the pretrained stage would invalidate the whole
+experiment.
 
 **Prerequisite, and it is not optional.** TabICL derives inference batch sizes from GPU
 memory free at predict time, and varying batch size alone moves individual predictions by

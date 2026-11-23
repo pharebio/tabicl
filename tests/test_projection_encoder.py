@@ -63,9 +63,9 @@ def test_rejects_an_unknown_encoder():
         TabICL(**CONFIG, row_encoder="attenton")
 
 
-@pytest.mark.parametrize("n_features", [4, 16, 32])
-def test_projection_forward_shape_at_and_around_max_features(n_features):
-    """Narrower inputs are padded, wider ones truncated; the output width never moves."""
+@pytest.mark.parametrize("n_features", [4, 16])
+def test_projection_forward_shape_up_to_max_features(n_features):
+    """Narrower inputs are zero-padded; the output width never moves."""
     torch.manual_seed(0)
     model = TabICL(**CONFIG, row_encoder="projection", proj_max_features=16).eval()
     X = torch.randn(2, 40, n_features)
@@ -73,6 +73,14 @@ def test_projection_forward_shape_at_and_around_max_features(n_features):
     with torch.no_grad():
         out = model(X, y, inference_config=cpu_config())
     assert out.shape == (2, 10, CONFIG["num_quantiles"])
+
+
+def test_too_many_features_is_refused_not_truncated():
+    """Silently dropping columns would produce a plausible wrong number, so it raises."""
+    enc = ProjectionEncoder(max_features=16, embed_dim=32, num_cls=4).eval()
+    with torch.no_grad():
+        with pytest.raises(ValueError, match="fixed input width"):
+            enc(torch.randn(1, 8, 17))
 
 
 def test_output_chunks_are_layer_normalized():

@@ -41,9 +41,8 @@ class ProjectionEncoder(nn.Module):
     Parameters
     ----------
     max_features : int
-        Width the input is padded or truncated to. Inputs with fewer columns are
-        zero-padded on the right; with more, the extra columns are dropped and a
-        warning is the caller's responsibility (see ``forward``).
+        Fixed input width. Inputs with fewer columns are zero-padded on the right;
+        inputs with more are refused rather than truncated.
 
     embed_dim : int
         Per-CLS-token width, matching the row stage being replaced.
@@ -107,10 +106,15 @@ class ProjectionEncoder(nn.Module):
     def _project(self, X: Tensor) -> Tensor:
         """Project one chunk of rows. ``X`` is (B, t, H); returns (B, t, num_cls*embed_dim)."""
         H = X.shape[-1]
+        if H > self.max_features:
+            raise ValueError(
+                f"Input has {H} features but this encoder was built for max_features="
+                f"{self.max_features}. Truncating would silently drop {H - self.max_features} "
+                f"columns, so it is refused: rebuild the model with proj_max_features >= {H}. "
+                f"Unlike the attention stages it replaces, this encoder has a fixed input width."
+            )
         if H < self.max_features:
             X = F.pad(X, (0, self.max_features - H), value=0.0)
-        elif H > self.max_features:
-            X = X[..., : self.max_features]
 
         out = self.mlp(X)  # (B, t, d_model)
         out = out.unflatten(-1, (self.num_cls, self.embed_dim))  # (B, t, C, E)
@@ -122,7 +126,8 @@ class ProjectionEncoder(nn.Module):
         Parameters
         ----------
         X : Tensor
-            Input of shape (B, T, H). Padded or truncated to ``max_features``.
+            Input of shape (B, T, H). Zero-padded to ``max_features``; ``H`` greater
+            than ``max_features`` raises.
 
         y_train : Optional[Tensor], default=None
             Accepted for signature parity with the stages this replaces, and ignored.
